@@ -1,17 +1,16 @@
 const std = @import("std");
 
-fn libPath(release_mode: bool) []const u8 {
-    return if (release_mode) "vendor/wgpu_native/target/release/" else "vendor/wgpu_native/target/debug/";
-}
-
-fn dllPath(release_mode: bool) []const u8 {
-    return if (release_mode) "vendor/wgpu_native/target/release/wgpu_native.dll" else "vendor/wgpu_native/target/debug/wgpu_native.dll";
-}
-
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
-    const release_mode = b.option(bool, "release", "Build in release mode") orelse false;
+
+    const wgpu_dep = b.dependency("wgpu_native", .{});
+    const wgpu_build_cmd = b.addSystemCommand(&.{ "cargo", "build" });
+    wgpu_build_cmd.setCwd(wgpu_dep.path("."));
+    b.getInstallStep().dependOn(&wgpu_build_cmd.step);
+
+    const install_step = b.addInstallFile(wgpu_dep.path("target/debug/wgpu_native.dll"), "bin/wgpu_native.dll");
+    b.getInstallStep().dependOn(&install_step.step);
 
     const mod = b.addModule("zpu", .{
         .root_source_file = b.path("src/root.zig"),
@@ -20,15 +19,10 @@ pub fn build(b: *std.Build) !void {
         .link_libcpp = true,
     });
 
-    mod.addIncludePath(b.path("vendor/wgpu_native/ffi/"));
-    mod.addIncludePath(b.path("vendor/wgpu_native/ffi/webgpu-headers/"));
-    mod.addLibraryPath(b.path(libPath(release_mode)));
+    mod.addIncludePath(wgpu_dep.path("ffi/"));
+    mod.addIncludePath(wgpu_dep.path("ffi/webgpu-headers"));
+    mod.addLibraryPath(wgpu_dep.path("target/debug"));
     mod.linkSystemLibrary("wgpu_native", .{});
-
-    switch (target.result.os.tag) {
-        .windows => b.installFile(dllPath(release_mode), "bin/wgpu_native.dll"),
-        else => @panic("Unsupported OS"),
-    }
 
     const exe = b.addExecutable(.{
         .name = "zpu",
@@ -43,11 +37,6 @@ pub fn build(b: *std.Build) !void {
     });
 
     b.installArtifact(exe);
-
-    const wgpu_step = b.step("wgpu", "Build wgpu_native");
-    const rust_cmd = b.addSystemCommand(if (release_mode) &.{ "cargo", "build", "--release" } else &.{ "cargo", "build" });
-    rust_cmd.setCwd(b.path("vendor/wgpu_native/"));
-    wgpu_step.dependOn(&rust_cmd.step);
 
     const run_step = b.step("run", "Run the app");
 
