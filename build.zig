@@ -1,31 +1,17 @@
 const std = @import("std");
 
-fn getWgpuDirName(b: *std.Build, target: std.Build.ResolvedTarget, release_mode: bool) ![]const u8 {
-    const os: []const u8 = switch (target.result.os.tag) {
-        .windows => "windows",
-        else => @panic("Unsupported OS"),
-    };
+fn libPath(release_mode: bool) []const u8 {
+    return if (release_mode) "vendor/wgpu_native/target/release/" else "vendor/wgpu_native/target/debug/";
+}
 
-    const arch: []const u8 = switch (target.result.cpu.arch) {
-        .x86_64 => "x86_64",
-        else => @panic("Unsupported arch"),
-    };
-
-    const version: []const u8 = if (release_mode) "release" else "debug";
-    return try std.fmt.allocPrint(b.allocator, "{s}-{s}-{s}", .{ os, arch, version });
+fn dllPath(release_mode: bool) []const u8 {
+    return if (release_mode) "vendor/wgpu_native/target/release/wgpu_native.dll" else "vendor/wgpu_native/target/debug/wgpu_native.dll";
 }
 
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
-
-    const release_mode = b.option(bool, "release", "Should the project be build in release mode") orelse false;
-    const wgpu_folder = try getWgpuDirName(b, target, release_mode);
-    const wgpu_path = b.pathJoin(&.{ "vendor", "webgpu", wgpu_folder });
-    const wgpu_install_file = switch (target.result.os.tag) {
-        .windows => b.pathJoin(&.{ wgpu_path, "wgpu_native.dll" }),
-        else => @panic("Unsupported OS"),
-    };
+    const release_mode = b.option(bool, "release", "Build in release mode") orelse false;
 
     const mod = b.addModule("zpu", .{
         .root_source_file = b.path("src/root.zig"),
@@ -34,13 +20,15 @@ pub fn build(b: *std.Build) !void {
         .link_libcpp = true,
     });
 
-    mod.addIncludePath(b.path("vendor/webgpu/include"));
-    mod.addLibraryPath(b.path(wgpu_path));
+    mod.addIncludePath(b.path("vendor/wgpu_native/ffi/"));
+    mod.addIncludePath(b.path("vendor/wgpu_native/ffi/webgpu-headers/"));
+    mod.addLibraryPath(b.path(libPath(release_mode)));
     mod.linkSystemLibrary("wgpu_native", .{});
-    b.installFile(wgpu_install_file, switch (target.result.os.tag) {
-        .windows => "bin/wgpu_native.dll",
+
+    switch (target.result.os.tag) {
+        .windows => b.installFile(dllPath(release_mode), "bin/wgpu_native.dll"),
         else => @panic("Unsupported OS"),
-    });
+    }
 
     const exe = b.addExecutable(.{
         .name = "zpu",
@@ -55,6 +43,11 @@ pub fn build(b: *std.Build) !void {
     });
 
     b.installArtifact(exe);
+
+    const wgpu_step = b.step("wgpu", "Build wgpu_native");
+    const rust_cmd = b.addSystemCommand(if (release_mode) &.{ "cargo", "build", "--release" } else &.{ "cargo", "build" });
+    rust_cmd.setCwd(b.path("vendor/wgpu_native/"));
+    wgpu_step.dependOn(&rust_cmd.step);
 
     const run_step = b.step("run", "Run the app");
 

@@ -1,6 +1,6 @@
 const std = @import("std");
 const c = @cImport({
-    @cInclude("webgpu/webgpu.h");
+    @cInclude("webgpu.h");
 });
 
 pub const Error = error{
