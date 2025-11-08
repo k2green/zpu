@@ -23,7 +23,6 @@ fn printSlice(slice: []const []const u8) void {
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
-    const release_mode = b.option(bool, "release", "Build in release mode") orelse false;
 
     const rust_target = try getRustTarget(b, target);
     defer b.allocator.free(rust_target);
@@ -38,7 +37,7 @@ pub fn build(b: *std.Build) !void {
     defer wgpu_cmd_args.deinit(b.allocator);
     try wgpu_cmd_args.appendSlice(b.allocator, &.{ "cargo", "build", "--target", rust_target });
 
-    if (release_mode)
+    if (optimize != .Debug)
         try wgpu_cmd_args.append(b.allocator, "--release");
 
     // First run the command to add the required target, then build wgpu_native with that target
@@ -53,7 +52,7 @@ pub fn build(b: *std.Build) !void {
     // Get the output path for the library and the corresponding lib file
     const output_path = try std.fmt.allocPrint(b.allocator, "target/{s}/{s}", .{
         rust_target,
-        if (release_mode) "release" else "debug",
+        if (optimize == .Debug) "debug" else "release",
     });
 
     if (target.result.os.tag == .windows or target.result.os.tag == .linux) {
